@@ -17,10 +17,10 @@
 			"ES2021",
 			"DOM"
 		],
-		"noImplicitAny": false,
-		"strictNullChecks": false
+		"noImplicitOverride": true
 	},
 	"include": [
-		"src/**/*.ts"
+		"src/**/*.ts",
+		"tests/**/*.ts"
 	]
 }
