@@ -1,5 +1,4 @@
 import { App, Notice, PluginSettingTab, Setting, debounce } from 'obsidian';
-import type { SettingDefinitionItem } from 'obsidian';
 import type TencentCosPlugin from './main';
 import type { TencentCosSettings } from './types';
 
@@ -96,158 +95,7 @@ export class TencentCosSettingTab extends PluginSettingTab {
 		);
 	}
 
-	override getSettingDefinitions(): SettingDefinitionItem[] {
-		const regionOptions: Record<string, string> = {};
-		for (const [value, label] of REGIONS) {
-			regionOptions[value] = label;
-		}
 
-		const expirationOptions: Record<string, string> = {};
-		for (const [days, label] of EXPIRATION_OPTIONS) {
-			expirationOptions[String(days * SECONDS_PER_DAY)] = label;
-		}
-
-		return [
-			{
-				name: 'Secret Id',
-				desc: '腾讯云 API 密钥 Secret Id',
-				control: {
-					type: 'text',
-					key: 'secretId',
-					placeholder: '输入 Secret Id',
-				},
-			},
-			{
-				name: 'Secret Key',
-				desc: '腾讯云 API 密钥 Secret Key',
-				control: {
-					type: 'text',
-					key: 'secretKey',
-					placeholder: '输入 Secret Key',
-				},
-			},
-			{
-				name: 'Bucket',
-				desc: 'COS 存储桶名称',
-				control: {
-					type: 'text',
-					key: 'bucket',
-					placeholder: '例如：my-bucket-1250000000',
-				},
-			},
-			{
-				name: 'Region',
-				desc: '存储桶所在地域',
-				control: {
-					type: 'dropdown',
-					key: 'region',
-					options: regionOptions,
-				},
-			},
-			{
-				name: '自定义域名',
-				desc: '可选。生成链接时使用此域名，例如：https://img.example.com。若仅配置 HTTP，可填写 http://img.example.com；未写协议时默认 HTTPS。',
-				control: {
-					type: 'text',
-					key: 'customDomain',
-					placeholder: '例如：https://img.example.com',
-				},
-			},
-			{
-				name: '存储路径前缀',
-				desc: '设置文件在 COS 中的存储路径前缀，例如：images',
-				control: {
-					type: 'text',
-					key: 'prefix',
-					placeholder: '例如：images',
-				},
-			},
-			{
-				name: '图片有效期',
-				desc: '设置图片链接的有效期',
-				control: {
-					type: 'dropdown',
-					key: 'expiration',
-					options: expirationOptions,
-				},
-			},
-			{
-				name: '公有读存储桶',
-				desc: '开启后使用干净的无签名URL（需将COS存储桶设置为公有读）。关闭则使用带签名的临时URL（更安全，但URL较长）',
-				control: {
-					type: 'toggle',
-					key: 'publicRead',
-				},
-			},
-			{
-				name: '启用规则图片命名',
-				desc: '开启后按“上传命名模板”生成文件名与子目录；关闭则继续使用原有的时间戳命名。',
-				control: {
-					type: 'toggle',
-					key: 'enableCustomNaming',
-				},
-			},
-			{
-				name: '上传命名模板',
-				desc: '支持子目录和变量：{year}、{month}/{mon}、{day}、{timestamp}、{notename}、{counter}、{random}、{filename}（含扩展名）、{basename}、{ext}。例如：{year}/{mon}/{day}/{filename} 或 {notename}-{counter}{ext}。',
-				control: {
-					type: 'text',
-					key: 'namingPattern',
-					placeholder: '{notename}-{timestamp}-{counter}',
-				},
-			},
-			{
-				name: '手动上传模式',
-				desc: '开启后，拖拽和粘贴只由 Obsidian 保存为本地附件；选中一个或多个本地链接后右键“上传附件到 COS”即可按需上传。',
-				control: {
-					type: 'toggle',
-					key: 'manualUploadMode',
-				},
-			},
-			{
-				name: '上传后删除本地附件',
-				desc: '开启后，本地图片或附件成功上传至 COS 并在笔记中替换为远程链接后，自动将本地对应的源文件移至废纸篓，避免占用本地存储空间。',
-				control: {
-					type: 'toggle',
-					key: 'deleteLocalAfterUpload',
-				},
-			},
-			{
-				name: '启用多格式文件上传',
-				desc: '开启后，拖拽或粘贴非图片文件（如 PDF、MP3 等）时也会自动上传到 COS',
-				control: {
-					type: 'toggle',
-					key: 'enableFileUpload',
-				},
-			},
-			{
-				name: '允许的文件类型',
-				desc: '非图片文件允许上传的扩展名，用英文逗号分隔',
-				control: {
-					type: 'textarea',
-					key: 'allowedFileExtensions',
-					placeholder: 'pdf,mp3,mp4,wav,doc,docx,zip,mov,webm',
-				},
-			},
-			{
-				name: '测试上传',
-				desc: '测试COS连接和上传功能',
-				action: () => {
-					void this.testConnection();
-				},
-			},
-		];
-	}
-
-	override async setControlValue(key: string, value: unknown): Promise<void> {
-		if (key in this.plugin.settings) {
-			(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
-			await this.plugin.saveSettings();
-			if (['secretId', 'secretKey', 'bucket', 'region'].includes(key)) {
-				this.reinitUploader();
-			}
-		}
-	}
 
 	override display(): void {
 		const { containerEl } = this;
@@ -428,21 +276,34 @@ export class TencentCosSettingTab extends PluginSettingTab {
 			});
 	}
 
-	private async testConnection(): Promise<void> {
-		let { uploader } = this.plugin;
-		if (!uploader) {
-			await this.plugin.initUploader({ silent: false });
-			uploader = this.plugin.uploader;
+	private isTesting = false;
+
+	private async testConnection(button?: { setDisabled: (d: boolean) => unknown; setButtonText: (t: string) => unknown }): Promise<void> {
+		if (this.isTesting) return;
+		this.isTesting = true;
+		button?.setDisabled(true);
+		button?.setButtonText('测试中...');
+
+		try {
+			let { uploader } = this.plugin;
+			if (!uploader) {
+				await this.plugin.initUploader({ silent: false });
+				uploader = this.plugin.uploader;
+			}
+			if (!uploader) {
+				new Notice('请先配置COS设置');
+				return;
+			}
+			new Notice(
+				(await uploader.testConnection())
+					? 'COS连接测试成功！'
+					: 'COS连接测试失败，请检查控制台日志',
+			);
+		} finally {
+			this.isTesting = false;
+			button?.setDisabled(false);
+			button?.setButtonText('测试连接');
 		}
-		if (!uploader) {
-			new Notice('请先配置COS设置');
-			return;
-		}
-		new Notice(
-			(await uploader.testConnection())
-				? 'COS连接测试成功！'
-				: 'COS连接测试失败，请检查控制台日志',
-		);
 	}
 
 	private addTestConnectionSetting(): void {
@@ -451,7 +312,7 @@ export class TencentCosSettingTab extends PluginSettingTab {
 			.setDesc('测试COS连接和上传功能')
 			.addButton((button) => {
 				button.setButtonText('测试连接').onClick(() => {
-					void this.testConnection();
+					void this.testConnection(button);
 				});
 			});
 	}

@@ -107,9 +107,14 @@ export class FakeDropdownComponent {
 
 export class FakeButtonComponent {
 	text = '';
+	disabled = false;
 	clickHandler: (() => unknown) | null = null;
 	setButtonText(text: string): this {
 		this.text = text;
+		return this;
+	}
+	setDisabled(disabled: boolean): this {
+		this.disabled = disabled;
 		return this;
 	}
 	onClick(handler: () => unknown): this {
