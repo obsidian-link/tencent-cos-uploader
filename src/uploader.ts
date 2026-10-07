@@ -38,7 +38,6 @@ export class TencentCosUploader {
 		const { secretId, secretKey, bucket, region } = this.settings;
 		if (!bucket || !region) return false;
 
-		// 1. 优先通过 Obsidian 原生 requestUrl 测试（彻底规避 iOS / 移动端 WebKit CORS 拦截）
 		try {
 			const host = `${bucket}.cos.${region}.myqcloud.com`;
 			const authorization = COS.getAuthorization({
@@ -60,27 +59,15 @@ export class TencentCosUploader {
 				throw: false,
 			});
 
-			// 200 OK，或者鉴权成功但由于权限/策略限制返回 403 均说明网络通路可达且能够握手
 			if (response && response.status === 200) {
 				return true;
 			}
 			if (response) {
-				console.warn('requestUrl 测试返回非200状态:', response.status, response.text);
+				console.error('COS 连接测试返回非 200 状态:', response.status, response.text);
 			}
-		} catch (nativeError) {
-			console.warn('requestUrl 测试异常，尝试回退 cos.getBucket:', nativeError);
-		}
-
-		// 2. 回退到 cos-js-sdk-v5 内置 getBucket（支持 Node/Desktop 环境）
-		try {
-			await this.cos.getBucket({
-				Bucket: bucket,
-				Region: region,
-				MaxKeys: 1,
-			});
-			return true;
+			return false;
 		} catch (error) {
-			console.error('COS连接测试失败:', error);
+			console.error('COS 连接测试异常:', error);
 			return false;
 		}
 	}
@@ -119,53 +106,37 @@ export class TencentCosUploader {
 			key = `${prefix ? `${prefix}/` : ''}${fileName}`;
 		}
 
-		let uploadedSuccessfully = false;
+		const host = `${bucket}.cos.${region}.myqcloud.com`;
+		const pathname = `/${key.replace(/^\/+/, '')}`;
+		const contentType = file.type || 'application/octet-stream';
+		const authorization = COS.getAuthorization({
+			SecretId: this.settings.secretId,
+			SecretKey: this.settings.secretKey,
+			Method: 'put',
+			Pathname: pathname,
+			Headers: {
+				Host: host,
+				'Content-Type': contentType,
+			},
+		});
 
-		// 1. 优先通过 Obsidian 原生 requestUrl 上传（彻底消除移动端 CORS / XHR 错误）
-		try {
-			const host = `${bucket}.cos.${region}.myqcloud.com`;
-			const pathname = `/${key.replace(/^\/+/, '')}`;
-			const authorization = COS.getAuthorization({
-				SecretId: this.settings.secretId,
-				SecretKey: this.settings.secretKey,
-				Method: 'put',
-				Pathname: pathname,
-				Headers: {
-					Host: host,
-					'Content-Type': file.type || 'application/octet-stream',
-				},
-			});
+		const arrayBuffer = await file.arrayBuffer();
+		const response = await requestUrl({
+			url: `https://${host}${pathname}`,
+			method: 'PUT',
+			contentType,
+			body: arrayBuffer,
+			headers: {
+				Host: host,
+				Authorization: authorization,
+			},
+			throw: false,
+		});
 
-			const arrayBuffer = await file.arrayBuffer();
-			const response = await requestUrl({
-				url: `https://${host}${pathname}`,
-				method: 'PUT',
-				contentType: file.type || 'application/octet-stream',
-				body: arrayBuffer,
-				headers: {
-					Host: host,
-					Authorization: authorization,
-				},
-				throw: false,
-			});
-
-			if (response && response.status === 200) {
-				uploadedSuccessfully = true;
-			} else if (response) {
-				console.warn('requestUrl 上传返回非200状态:', response.status, response.text);
-			}
-		} catch (nativeErr) {
-			console.warn('requestUrl 上传异常，尝试回退 cos.putObject:', nativeErr);
-		}
-
-		// 2. 回退到 cos-js-sdk-v5 putObject
-		if (!uploadedSuccessfully) {
-			await this.cos.putObject({
-				Bucket: bucket,
-				Region: region,
-				Key: key,
-				Body: file,
-			});
+		if (!response || response.status !== 200) {
+			const status = response ? response.status : '未知状态';
+			const detail = response?.text ? ` (${response.text})` : '';
+			throw new Error(`COS 上传失败 [HTTP ${status}]${detail}`);
 		}
 
 		const url = await this.getSignedUrl(key);
@@ -179,19 +150,15 @@ export class TencentCosUploader {
 	}
 
 	async downloadObject(key: string): Promise<ArrayBuffer> {
-		const { Body: body } = await this.cos.getObject({
-			Bucket: this.settings.bucket,
-			Region: this.settings.region,
-			Key: key,
-			DataType: 'arraybuffer',
+		const downloadUrl = await this.getSignedUrl(key);
+		const response = await requestUrl({
+			url: downloadUrl,
+			method: 'GET',
 		});
-		if (body instanceof ArrayBuffer) return body;
-		if (body instanceof Blob) return body.arrayBuffer();
-
-		const encoded = new TextEncoder().encode(body);
-		const buffer = new ArrayBuffer(encoded.byteLength);
-		new Uint8Array(buffer).set(encoded);
-		return buffer;
+		if (response.status !== 200) {
+			throw new Error(`COS 下载失败 [HTTP ${response.status}]`);
+		}
+		return response.arrayBuffer;
 	}
 
 	/** URL 是否指向当前配置的存储桶域名或自定义域名 */

@@ -218,6 +218,9 @@ describe('syncNoteAttachments：上传后删除本地附件', () => {
 describe('syncNoteAttachments：外链图片', () => {
 	function mockRemoteImage(contentType: string | undefined) {
 		vi.mocked(requestUrl).mockResolvedValue({
+			status: 200,
+			text: '',
+			json: {},
 			headers: contentType ? { 'content-type': contentType } : {},
 			arrayBuffer: new ArrayBuffer(4),
 		});

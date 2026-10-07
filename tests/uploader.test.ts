@@ -1,21 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type RequestUrlResponse, requestUrl } from 'obsidian';
 import { DEFAULT_SETTINGS, type TencentCosSettings } from '../src/types';
 import { TencentCosUploader } from '../src/uploader';
 
 const cosMock = vi.hoisted(() => {
 	const methods = {
-		getBucket: vi.fn(),
-		putObject: vi.fn(),
-		getObject: vi.fn(),
 		getObjectUrl: vi.fn(),
 		getAuthorization: vi.fn(() => 'q-sign-mock'),
 	};
 	const constructed: unknown[] = [];
 	class MockCOS {
 		static getAuthorization = methods.getAuthorization;
-		getBucket = methods.getBucket;
-		putObject = methods.putObject;
-		getObject = methods.getObject;
 		getObjectUrl = methods.getObjectUrl;
 		constructor(options: unknown) {
 			constructed.push(options);
@@ -41,21 +36,39 @@ function makeSettings(
 	};
 }
 
+function mockResponse(
+	overrides: Partial<RequestUrlResponse> = {},
+): RequestUrlResponse {
+	return {
+		status: 200,
+		headers: {},
+		arrayBuffer: new ArrayBuffer(0),
+		text: '',
+		json: {},
+		...overrides,
+	};
+}
+
 const note = { noteName: 'My Note', notePath: 'notes/my-note.md' };
 
 function file(name: string): File {
 	return new File(['data'], name, { type: 'image/png' });
 }
 
-/** 取最后一次 putObject 使用的 Key */
+/** 取最后一次 requestUrl 上传使用的 Key */
 function lastPutKey(): string {
-	const calls = cosMock.methods.putObject.mock.calls;
-	return (calls[calls.length - 1]?.[0] as { Key: string }).Key;
+	const calls = vi.mocked(requestUrl).mock.calls;
+	const lastCall = calls[calls.length - 1]?.[0];
+	if (!lastCall) return '';
+	const url = typeof lastCall === 'string' ? lastCall : (lastCall as { url: string }).url;
+	const pathname = new URL(url).pathname;
+	return decodeURIComponent(pathname.replace(/^\/+/, ''));
 }
 
 beforeEach(() => {
 	cosMock.constructed.length = 0;
-	cosMock.methods.putObject.mockResolvedValue({});
+	vi.mocked(requestUrl).mockReset();
+	vi.mocked(requestUrl).mockResolvedValue(mockResponse());
 	cosMock.methods.getObjectUrl.mockImplementation(
 		(_params: unknown, callback: (err: null, data: { Url: string }) => void) => {
 			callback(null, { Url: SIGNED_URL });
@@ -88,36 +101,30 @@ describe('构造函数', () => {
 });
 
 describe('testConnection', () => {
-	it('优先通过 requestUrl 测试成功时返回 true', async () => {
-		const { requestUrl } = await import('obsidian');
-		vi.mocked(requestUrl).mockResolvedValueOnce({
-			status: 200,
-			text: '',
-			headers: {},
-			arrayBuffer: new ArrayBuffer(0),
-			json: {},
-		} as any);
-
+	it('通过 requestUrl 测试成功时返回 true', async () => {
 		const uploader = new TencentCosUploader(makeSettings());
 		await expect(uploader.testConnection()).resolves.toBe(true);
-		expect(cosMock.methods.getBucket).not.toHaveBeenCalled();
+		expect(requestUrl).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: 'https://b-125.cos.ap-guangzhou.myqcloud.com/?max-keys=1',
+				method: 'GET',
+			}),
+		);
 	});
 
-	it('requestUrl 失败时回退到 getBucket，getBucket 成功返回 true', async () => {
-		cosMock.methods.getBucket.mockResolvedValue({});
-		const uploader = new TencentCosUploader(makeSettings());
-
-		await expect(uploader.testConnection()).resolves.toBe(true);
-		expect(cosMock.methods.getBucket).toHaveBeenCalledWith({
-			Bucket: 'b-125',
-			Region: 'ap-guangzhou',
-			MaxKeys: 1,
-		});
-	});
-
-	it('失败返回 false 且不抛错', async () => {
+	it('requestUrl 返回非 200 时返回 false 且不抛错', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => undefined);
-		cosMock.methods.getBucket.mockRejectedValue({ code: 'AccessDenied' });
+		vi.mocked(requestUrl).mockResolvedValueOnce(
+			mockResponse({ status: 403, text: 'AccessDenied' }),
+		);
+		const uploader = new TencentCosUploader(makeSettings());
+
+		await expect(uploader.testConnection()).resolves.toBe(false);
+	});
+
+	it('requestUrl 抛出异常时返回 false 且不抛错', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		vi.mocked(requestUrl).mockRejectedValueOnce(new Error('Network unreachable'));
 		const uploader = new TencentCosUploader(makeSettings());
 
 		await expect(uploader.testConnection()).resolves.toBe(false);
@@ -147,19 +154,26 @@ describe('uploadFile - 默认命名', () => {
 		expect(lastPutKey()).toBe('1700000000000-README');
 	});
 
-	it('把 File 作为 Body 上传到配置的 Bucket / Region', async () => {
+	it('把 File 作为 Body 通过 requestUrl 上传到配置的 Bucket / Region', async () => {
 		const uploader = new TencentCosUploader(makeSettings());
 		const f = file('a.png');
 
 		await uploader.uploadFile(f);
 
-		expect(cosMock.methods.putObject).toHaveBeenCalledWith(
-			expect.objectContaining({
-				Bucket: 'b-125',
-				Region: 'ap-guangzhou',
-				Body: f,
-			}),
+		const calls = vi.mocked(requestUrl).mock.calls;
+		const req = calls[calls.length - 1]?.[0] as {
+			url: string;
+			method: string;
+			contentType: string;
+			headers: Record<string, string>;
+		};
+		expect(req.url).toBe(
+			'https://b-125.cos.ap-guangzhou.myqcloud.com/1700000000000-a.png',
 		);
+		expect(req.method).toBe('PUT');
+		expect(req.contentType).toBe('image/png');
+		expect(req.headers.Host).toBe('b-125.cos.ap-guangzhou.myqcloud.com');
+		expect(req.headers.Authorization).toBe('q-sign-mock');
 	});
 
 	it('未配置 Bucket 或 Region 时抛错', async () => {
@@ -171,11 +185,21 @@ describe('uploadFile - 默认命名', () => {
 		).rejects.toThrow('存储桶');
 	});
 
-	it('putObject 失败时向上抛出，不再请求签名', async () => {
-		cosMock.methods.putObject.mockRejectedValue(new Error('network down'));
+	it('requestUrl 网络异常时向上抛出，不再请求签名', async () => {
+		vi.mocked(requestUrl).mockRejectedValue(new Error('network down'));
 		const uploader = new TencentCosUploader(makeSettings());
 
 		await expect(uploader.uploadFile(file('a.png'))).rejects.toThrow('network down');
+		expect(cosMock.methods.getObjectUrl).not.toHaveBeenCalled();
+	});
+
+	it('requestUrl 返回非 200 时抛出业务错误，不再请求签名', async () => {
+		vi.mocked(requestUrl).mockResolvedValue(
+			mockResponse({ status: 403, text: 'Access Denied' }),
+		);
+		const uploader = new TencentCosUploader(makeSettings());
+
+		await expect(uploader.uploadFile(file('a.png'))).rejects.toThrow('COS 上传失败 [HTTP 403]');
 		expect(cosMock.methods.getObjectUrl).not.toHaveBeenCalled();
 	});
 
@@ -243,9 +267,11 @@ describe('uploadFile - 自定义命名模板', () => {
 			notePath: 'other.md',
 		});
 
-		const keys = cosMock.methods.putObject.mock.calls.map(
-			(call) => (call[0] as { Key: string }).Key,
-		);
+		const keys = vi.mocked(requestUrl).mock.calls.map((call) => {
+			const param = call[0];
+			const url = typeof param === 'string' ? param : param.url;
+			return decodeURIComponent(new URL(url).pathname.replace(/^\/+/, ''));
+		});
 		expect(keys).toEqual(['MyNote-1.png', 'MyNote-2.png', 'Other-1.png']);
 	});
 
@@ -409,34 +435,28 @@ describe('设置热更新', () => {
 describe('downloadObject', () => {
 	const uploader = () => new TencentCosUploader(makeSettings());
 
-	it('ArrayBuffer 原样返回，并以 arraybuffer 请求', async () => {
+	it('通过签名 URL 和 requestUrl 获取 ArrayBuffer 原样返回', async () => {
 		const buffer = new Uint8Array([1, 2, 3]).buffer;
-		cosMock.methods.getObject.mockResolvedValue({ Body: buffer });
+		vi.mocked(requestUrl).mockResolvedValueOnce(
+			mockResponse({ status: 200, arrayBuffer: buffer }),
+		);
 
-		expect(await uploader().downloadObject('a/b.png')).toBe(buffer);
-		expect(cosMock.methods.getObject).toHaveBeenCalledWith({
-			Bucket: 'b-125',
-			Region: 'ap-guangzhou',
-			Key: 'a/b.png',
-			DataType: 'arraybuffer',
+		const result = await uploader().downloadObject('a/b.png');
+		expect(result).toBe(buffer);
+		expect(requestUrl).toHaveBeenCalledWith({
+			url: `${SIGNED_URL}&response-content-disposition=inline`,
+			method: 'GET',
 		});
 	});
 
-	it('Blob 转换为 ArrayBuffer', async () => {
-		cosMock.methods.getObject.mockResolvedValue({ Body: new Blob(['abc']) });
+	it('下载非 200 状态码时抛出错误', async () => {
+		vi.mocked(requestUrl).mockResolvedValueOnce(
+			mockResponse({ status: 404, text: 'Not Found' }),
+		);
 
-		const result = await uploader().downloadObject('k');
-
-		expect(new TextDecoder().decode(result)).toBe('abc');
-	});
-
-	it('字符串按 UTF-8 编码为 ArrayBuffer', async () => {
-		cosMock.methods.getObject.mockResolvedValue({ Body: '中文' });
-
-		const result = await uploader().downloadObject('k');
-
-		expect(result).toBeInstanceOf(ArrayBuffer);
-		expect(new TextDecoder().decode(result)).toBe('中文');
+		await expect(uploader().downloadObject('not-found.png')).rejects.toThrow(
+			'COS 下载失败 [HTTP 404]',
+		);
 	});
 });
 

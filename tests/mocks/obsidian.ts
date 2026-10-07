@@ -26,7 +26,17 @@ export class TFile {
 
 export class MarkdownView {}
 
-export const requestUrl = vi.fn();
+export interface RequestUrlResponse {
+	status: number;
+	headers: Record<string, string>;
+	arrayBuffer: ArrayBuffer;
+	json: unknown;
+	text: string;
+}
+
+export type RequestUrlResponsePromise = Promise<RequestUrlResponse>;
+
+export const requestUrl = vi.fn<(req?: unknown) => RequestUrlResponsePromise>();
 
 export const debounce = <T extends unknown[]>(
 	callback: (...args: T) => unknown,
