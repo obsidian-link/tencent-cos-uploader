@@ -1,6 +1,6 @@
 {
 	"name": "tencent-cos-uploader",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"description": "Upload images and attachments to Tencent Cloud COS for Obsidian.",
 	"main": "main.js",
 	"scripts": {

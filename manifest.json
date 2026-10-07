@@ -1,7 +1,7 @@
 {
 	"id": "tencent-cos-uploader",
 	"name": "Tencent Cloud COS Uploader",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"minAppVersion": "1.6.6",
 	"description": "Upload images and attachments to Tencent Cloud COS (腾讯云对象存储) seamlessly with link replacement, mobile support, and local trash cleanup.",
 	"author": "obsidian-link",

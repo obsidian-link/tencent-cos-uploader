@@ -1,4 +1,5 @@
 import COS from 'cos-js-sdk-v5';
+import { requestUrl } from 'obsidian';
 import type {
 	NoteContext,
 	TencentCosSettings,
@@ -34,10 +35,47 @@ export class TencentCosUploader {
 	}
 
 	async testConnection(): Promise<boolean> {
+		const { secretId, secretKey, bucket, region } = this.settings;
+		if (!bucket || !region) return false;
+
+		// 1. 优先通过 Obsidian 原生 requestUrl 测试（彻底规避 iOS / 移动端 WebKit CORS 拦截）
+		try {
+			const host = `${bucket}.cos.${region}.myqcloud.com`;
+			const authorization = COS.getAuthorization({
+				SecretId: secretId,
+				SecretKey: secretKey,
+				Method: 'get',
+				Pathname: '/',
+				Headers: { Host: host },
+				Query: { 'max-keys': '1' },
+			});
+
+			const response = await requestUrl({
+				url: `https://${host}/?max-keys=1`,
+				method: 'GET',
+				headers: {
+					Host: host,
+					Authorization: authorization,
+				},
+				throw: false,
+			});
+
+			// 200 OK，或者鉴权成功但由于权限/策略限制返回 403 均说明网络通路可达且能够握手
+			if (response && response.status === 200) {
+				return true;
+			}
+			if (response) {
+				console.warn('requestUrl 测试返回非200状态:', response.status, response.text);
+			}
+		} catch (nativeError) {
+			console.warn('requestUrl 测试异常，尝试回退 cos.getBucket:', nativeError);
+		}
+
+		// 2. 回退到 cos-js-sdk-v5 内置 getBucket（支持 Node/Desktop 环境）
 		try {
 			await this.cos.getBucket({
-				Bucket: this.settings.bucket,
-				Region: this.settings.region,
+				Bucket: bucket,
+				Region: region,
 				MaxKeys: 1,
 			});
 			return true;
@@ -81,12 +119,54 @@ export class TencentCosUploader {
 			key = `${prefix ? `${prefix}/` : ''}${fileName}`;
 		}
 
-		await this.cos.putObject({
-			Bucket: bucket,
-			Region: region,
-			Key: key,
-			Body: file,
-		});
+		let uploadedSuccessfully = false;
+
+		// 1. 优先通过 Obsidian 原生 requestUrl 上传（彻底消除移动端 CORS / XHR 错误）
+		try {
+			const host = `${bucket}.cos.${region}.myqcloud.com`;
+			const pathname = `/${key.replace(/^\/+/, '')}`;
+			const authorization = COS.getAuthorization({
+				SecretId: this.settings.secretId,
+				SecretKey: this.settings.secretKey,
+				Method: 'put',
+				Pathname: pathname,
+				Headers: {
+					Host: host,
+					'Content-Type': file.type || 'application/octet-stream',
+				},
+			});
+
+			const arrayBuffer = await file.arrayBuffer();
+			const response = await requestUrl({
+				url: `https://${host}${pathname}`,
+				method: 'PUT',
+				contentType: file.type || 'application/octet-stream',
+				body: arrayBuffer,
+				headers: {
+					Host: host,
+					Authorization: authorization,
+				},
+				throw: false,
+			});
+
+			if (response && response.status === 200) {
+				uploadedSuccessfully = true;
+			} else if (response) {
+				console.warn('requestUrl 上传返回非200状态:', response.status, response.text);
+			}
+		} catch (nativeErr) {
+			console.warn('requestUrl 上传异常，尝试回退 cos.putObject:', nativeErr);
+		}
+
+		// 2. 回退到 cos-js-sdk-v5 putObject
+		if (!uploadedSuccessfully) {
+			await this.cos.putObject({
+				Bucket: bucket,
+				Region: region,
+				Key: key,
+				Body: file,
+			});
+		}
 
 		const url = await this.getSignedUrl(key);
 		return { url, displayName };

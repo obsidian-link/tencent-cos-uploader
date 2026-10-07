@@ -8,9 +8,11 @@ const cosMock = vi.hoisted(() => {
 		putObject: vi.fn(),
 		getObject: vi.fn(),
 		getObjectUrl: vi.fn(),
+		getAuthorization: vi.fn(() => 'q-sign-mock'),
 	};
 	const constructed: unknown[] = [];
 	class MockCOS {
+		static getAuthorization = methods.getAuthorization;
 		getBucket = methods.getBucket;
 		putObject = methods.putObject;
 		getObject = methods.getObject;
@@ -86,7 +88,22 @@ describe('构造函数', () => {
 });
 
 describe('testConnection', () => {
-	it('成功返回 true，并只请求 1 个对象', async () => {
+	it('优先通过 requestUrl 测试成功时返回 true', async () => {
+		const { requestUrl } = await import('obsidian');
+		vi.mocked(requestUrl).mockResolvedValueOnce({
+			status: 200,
+			text: '',
+			headers: {},
+			arrayBuffer: new ArrayBuffer(0),
+			json: {},
+		} as any);
+
+		const uploader = new TencentCosUploader(makeSettings());
+		await expect(uploader.testConnection()).resolves.toBe(true);
+		expect(cosMock.methods.getBucket).not.toHaveBeenCalled();
+	});
+
+	it('requestUrl 失败时回退到 getBucket，getBucket 成功返回 true', async () => {
 		cosMock.methods.getBucket.mockResolvedValue({});
 		const uploader = new TencentCosUploader(makeSettings());
 
