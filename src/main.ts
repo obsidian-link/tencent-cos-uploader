@@ -5,13 +5,15 @@ import {
 	Setting,
 	ButtonComponent,
 	TFile,
-	TFolder,
 	requestUrl,
 	Modal,
 	MarkdownView,
 	Plugin,
 	PluginSettingTab,
 } from 'obsidian';
+
+// 官方社区审核规范：生产环境避免向控制台频繁打印非必要的调试日志
+const log = (..._args: any[]) => {};
 const DEFAULT_SETTINGS = {
 	secretId: '',
 	secretKey: '',
@@ -36,14 +38,14 @@ class ImgurPlugin extends Plugin {
 	pendingAutoUploads: Map<string, any> = new Map();
 
 	async onload() {
-		(console.log('=== ImgurPlugin 开始加载 ==='),
+		(log('=== ImgurPlugin 开始加载 ==='),
 			await this.loadSettings());
 		let n =
 			!this.settings.secretId ||
 			!this.settings.secretKey ||
 			!this.settings.bucket ||
 			!this.settings.region;
-		console.log('插件设置状态:', {
+		log('插件设置状态:', {
 			hasSecretId: !!this.settings.secretId,
 			hasSecretKey: !!this.settings.secretKey,
 			hasBucket: !!this.settings.bucket,
@@ -52,7 +54,7 @@ class ImgurPlugin extends Plugin {
 		});
 		let g = async () => {
 			if (
-				(console.log('初始化COS上传器，配置检查:', {
+				(log('初始化COS上传器，配置检查:', {
 					hasSecretId: !!this.settings.secretId,
 					hasSecretKey: !!this.settings.secretKey,
 					hasBucket: !!this.settings.bucket,
@@ -66,23 +68,23 @@ class ImgurPlugin extends Plugin {
 					this.settings.region)
 			)
 				try {
-					(console.log('开始创建COSUploader实例...'),
+					(log('开始创建COSUploader实例...'),
 						(this.uploader = new TencentCosUploader(this.settings)),
-						console.log('COSUploader实例创建成功'),
-						console.log('开始测试COS连接...'),
+						log('COSUploader实例创建成功'),
+						log('开始测试COS连接...'),
 						(await this.uploader.testConnection())
-							? (console.log('COS连接测试通过'),
+							? (log('COS连接测试通过'),
 								n &&
 									(new Notice('腾讯云 COS 配置已完成！'),
 									(n = false)))
-							: (console.log('COS连接测试失败'),
+							: (log('COS连接测试失败'),
 								new Notice('COS连接测试失败，请检查配置')));
 				} catch (i: any) {
 					(console.error('COSUploader初始化失败:', i),
 						new Notice(`插件初始化失败：${i.message}`),
 						console.error('Plugin initialization error:', i));
 				}
-			else console.log('COS配置不完整，跳过初始化');
+			else log('COS配置不完整，跳过初始化');
 		};
 		(!this.settings.secretId ||
 		!this.settings.secretKey ||
@@ -96,8 +98,12 @@ class ImgurPlugin extends Plugin {
 					let k = (t.getAttribute('alt') || '').match(/\*(\d+)$/);
 					if (!k) return;
 					let l = Number.parseInt(k[1], 10);
-					l >= 50 &&
-						((t.style.width = `${l}px`), (t.style.height = 'auto'));
+					if (l >= 50) {
+						t.setCssStyles({
+							width: `${l}px`,
+							height: 'auto',
+						});
+					}
 				});
 			}),
 			this.registerEvent(
@@ -108,27 +114,28 @@ class ImgurPlugin extends Plugin {
 			),
 			this.registerEvent(
 				this.app.workspace.on('editor-drop', async (i, t, k) => {
-					var w;
-					console.log('检测到拖拽事件');
+					if (i.defaultPrevented) return;
+					let w: any;
+					log('检测到拖拽事件');
 					let l = (w = i.dataTransfer) == null ? void 0 : w.files;
 					if (
-						(console.log(
+						(log(
 							'拖拽的文件数量:',
 							(l == null ? void 0 : l.length) || 0,
 						),
 						!l || l.length === 0)
 					) {
-						console.log('没有检测到文件，退出处理');
+						log('没有检测到文件，退出处理');
 						return;
 					}
 					if (this.settings.manualUploadMode) {
-						console.log('手动上传模式：交由 Obsidian 插入本地附件');
+						log('手动上传模式：交由 Obsidian 插入本地附件');
 						return;
 					}
 					(i.preventDefault(), i.stopPropagation());
 					for (let u = 0; u < l.length; u++) {
 						let f = l[u];
-						console.log(
+						log(
 							'处理拖拽文件:',
 							f.name,
 							'类型:',
@@ -139,7 +146,7 @@ class ImgurPlugin extends Plugin {
 						let h = f.type.startsWith('image/'),
 							d = this.isAllowedFile(f);
 						if (!h && !d) {
-							console.log('跳过不支持的文件:', f.name);
+							log('跳过不支持的文件:', f.name);
 							continue;
 						}
 						try {
@@ -153,7 +160,7 @@ class ImgurPlugin extends Plugin {
 									console.error('Uploader not initialized'));
 								continue;
 							}
-							console.log('开始处理拖拽的文件:', f.name);
+							log('开始处理拖拽的文件:', f.name);
 							let A = {
 									noteName: x.basename || '未命名',
 									notePath: x.path,
@@ -163,7 +170,7 @@ class ImgurPlugin extends Plugin {
 									void 0,
 									A,
 								);
-							console.log('拖拽文件上传完成，获得URL:', b.url);
+							log('拖拽文件上传完成，获得URL:', b.url);
 							let M = t.getCursor();
 							if (h)
 								t.replaceRange(
@@ -174,7 +181,7 @@ class ImgurPlugin extends Plugin {
 								let E = f.name;
 								t.replaceRange(`[${E}](${b.url})`, M);
 							}
-							(console.log('已插入文件链接到编辑器'),
+							(log('已插入文件链接到编辑器'),
 								new Notice(`${h ? '图片' : '文件'}上传成功！`));
 						} catch (x: any) {
 							(new Notice('文件上传失败：' + x.message),
@@ -185,26 +192,27 @@ class ImgurPlugin extends Plugin {
 			),
 			this.registerEvent(
 				this.app.workspace.on('editor-paste', async (i, t, k) => {
-					var w;
-					console.log('检测到粘贴事件');
+					if (i.defaultPrevented) return;
+					let w: any;
+					log('检测到粘贴事件');
 					let l = (w = i.clipboardData) == null ? void 0 : w.files;
 					if (
-						(console.log(
+						(log(
 							'粘贴的文件数量:',
 							(l == null ? void 0 : l.length) || 0,
 						),
 						!l || l.length === 0)
 					) {
-						console.log('没有检测到文件，退出处理');
+						log('没有检测到文件，退出处理');
 						return;
 					}
 					if (this.settings.manualUploadMode) {
-						console.log('手动上传模式：交由 Obsidian 插入本地附件');
+						log('手动上传模式：交由 Obsidian 插入本地附件');
 						return;
 					}
 					for (let u = 0; u < l.length; u++) {
 						let f = l[u];
-						console.log(
+						log(
 							'处理粘贴文件:',
 							f.name,
 							'类型:',
@@ -215,7 +223,7 @@ class ImgurPlugin extends Plugin {
 						let h = f.type.startsWith('image/'),
 							d = this.isAllowedFile(f);
 						if (!h && !d) {
-							console.log('跳过不支持的文件:', f.name);
+							log('跳过不支持的文件:', f.name);
 							continue;
 						}
 						i.preventDefault();
@@ -230,7 +238,7 @@ class ImgurPlugin extends Plugin {
 									console.error('Uploader not initialized'));
 								continue;
 							}
-							console.log('开始处理粘贴的文件:', f.name);
+							log('开始处理粘贴的文件:', f.name);
 							let A = {
 									noteName: x.basename || '未命名',
 									notePath: x.path,
@@ -240,7 +248,7 @@ class ImgurPlugin extends Plugin {
 									void 0,
 									A,
 								);
-							console.log('粘贴文件上传完成，获得URL:', b.url);
+							log('粘贴文件上传完成，获得URL:', b.url);
 							let M = t.getCursor();
 							if (h)
 								t.replaceRange(
@@ -251,7 +259,7 @@ class ImgurPlugin extends Plugin {
 								let E = f.name;
 								t.replaceRange(`[${E}](${b.url})`, M);
 							}
-							(console.log('已插入文件链接到编辑器'),
+							(log('已插入文件链接到编辑器'),
 								new Notice(`${h ? '图片' : '文件'}上传成功！`));
 						} catch (x: any) {
 							(new Notice('文件上传失败：' + x.message),
@@ -413,7 +421,7 @@ class ImgurPlugin extends Plugin {
 				},
 			}),
 			this.addSettingTab(new TencentCosSettingTab(this.app, this, g)),
-			console.log('=== ImgurPlugin 加载完成 ==='));
+			log('=== ImgurPlugin 加载完成 ==='));
 	}
 	onunload() {
 		this.uploader && this.uploader.cleanup();
@@ -588,11 +596,13 @@ class ImgurPlugin extends Plugin {
 				);
 				return;
 			}
-			// 放入系统废纸篓或 Obsidian 废纸篓，确保数据安全可撤销
-			await this.app.vault.trash(file, false);
-			console.log(
-				`已将成功上传到 COS 的本地附件移入废纸篓: ${file.path}`,
-			);
+			// 优先遵循用户的废纸篓偏好，如果环境不支持则优雅回退
+			const fm = this.app.fileManager as any;
+			if (typeof fm.trashFile === 'function') {
+				await fm.trashFile(file);
+			} else {
+				await this.app.vault.trash(file, false);
+			}
 		} catch (err: any) {
 			console.error(`删除本地附件失败: ${file?.path}`, err);
 		}
@@ -610,7 +620,7 @@ class ImgurPlugin extends Plugin {
 			let h = this.findAttachmentFile(f.path, n);
 			if (!h || !this.isUploadableAttachment(h)) {
 				// 仅在控制台提示跳过，不计入上传失败错误计数，避免用户看到误报
-				console.log(`跳过不支持或不存在的本地附件: ${f.path}`);
+				log(`跳过不支持或不存在的本地附件: ${f.path}`);
 				continue;
 			}
 			try {
@@ -945,80 +955,92 @@ class ImgurPlugin extends Plugin {
 	}
 	addImageResizeHandlers() {
 		let n = this.app.workspace.getActiveViewOfType(MarkdownView);
-		n &&
-			setTimeout(() => {
+		if (n) {
+			window.setTimeout(() => {
 				n.containerEl.querySelectorAll('img').forEach((t) => {
-					t.hasAttribute('data-resize-enabled') ||
-						(t.setAttribute('data-resize-enabled', 'true'),
-						(t.style.cursor = 'ew-resize'),
+					if (!t.hasAttribute('data-resize-enabled')) {
+						t.setAttribute('data-resize-enabled', 'true');
+						t.setCssStyles({ cursor: 'ew-resize' });
 						t.addEventListener('mousedown', (k) => {
-							(k.preventDefault(), this.handleImageResize(k, t));
-						}));
+							k.preventDefault();
+							this.handleImageResize(k, t);
+						});
+					}
 				});
 			}, 100);
+		}
 	}
-	handleImageResize(n, g) {
-		(n.preventDefault(), n.stopPropagation());
+	handleImageResize(n: MouseEvent, g: HTMLElement) {
+		n.preventDefault();
+		n.stopPropagation();
 		let i = n.clientX,
 			t = g.offsetWidth,
 			k = false,
-			l = (u) => {
-				if (
-					(!k &&
-						Math.abs(u.clientX - i) > 5 &&
-						((k = true),
-						(g.style.cursor = 'ew-resize'),
-						(document.body.style.cursor = 'ew-resize')),
-					k)
-				) {
+			l = (u: MouseEvent) => {
+				if (!k && Math.abs(u.clientX - i) > 5) {
+					k = true;
+					g.setCssStyles({ cursor: 'ew-resize' });
+					document.body.setCssStyles({ cursor: 'ew-resize' });
+				}
+				if (k) {
 					let f = u.clientX - i,
 						h = Math.max(50, t + f);
-					((g.style.width = h + 'px'),
-						(g.style.height = 'auto'),
-						this.showResizeTooltip(
-							u.clientX,
-							u.clientY,
-							Math.round(h),
-						));
+					g.setCssStyles({
+						width: `${h}px`,
+						height: 'auto',
+					});
+					this.showResizeTooltip(
+						u.clientX,
+						u.clientY,
+						Math.round(h),
+					);
 				}
 			},
 			w = async () => {
-				((document.body.style.cursor = ''),
-					this.hideResizeTooltip(),
-					k &&
-						((g.style.cursor = 'ew-resize'),
-						await this.updateImageSizeInMarkdown(g)),
-					document.removeEventListener('mousemove', l),
-					document.removeEventListener('mouseup', w));
+				document.body.setCssStyles({ cursor: '' });
+				this.hideResizeTooltip();
+				if (k) {
+					g.setCssStyles({ cursor: 'ew-resize' });
+					await this.updateImageSizeInMarkdown(g as HTMLImageElement);
+				}
+				document.removeEventListener('mousemove', l);
+				document.removeEventListener('mouseup', w);
 			};
-		(document.addEventListener('mousemove', l),
-			document.addEventListener('mouseup', w));
+		document.addEventListener('mousemove', l);
+		document.addEventListener('mouseup', w);
 	}
-	showResizeTooltip(n, g, i) {
+	showResizeTooltip(n: number, g: number, i: number) {
 		let t = document.getElementById('image-resize-tooltip');
-		(t ||
-			((t = document.createElement('div')),
-			(t.id = 'image-resize-tooltip'),
-			(t.style.cssText = `
-				position: fixed;
-				background: var(--background-primary);
-				border: 1px solid var(--background-modifier-border);
-				border-radius: 4px;
-				padding: 4px 8px;
-				font-size: 12px;
-				z-index: 10000;
-				pointer-events: none;
-				box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-			`),
-			document.body.appendChild(t)),
-			(t.textContent = `${i}px`),
-			(t.style.left = n + 10 + 'px'),
-			(t.style.top = g - 30 + 'px'),
-			(t.style.display = 'block'));
+		if (!t) {
+			t = createDiv({
+				cls: 'image-resize-tooltip',
+				attr: { id: 'image-resize-tooltip' },
+			});
+			t.setCssStyles({
+				position: 'fixed',
+				background: 'var(--background-primary)',
+				border: '1px solid var(--background-modifier-border)',
+				borderRadius: '4px',
+				padding: '4px 8px',
+				fontSize: '12px',
+				zIndex: '10000',
+				pointerEvents: 'none',
+				boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+			});
+			document.body.appendChild(t);
+		}
+		t.textContent = `${i}px`;
+		t.setCssStyles({
+			left: `${n + 10}px`,
+			top: `${g - 30}px`,
+			display: 'block',
+		});
 	}
 	hideResizeTooltip() {
 		let n = document.getElementById('image-resize-tooltip');
-		n && (n.style.display = 'none');
+		if (n) {
+			n.setCssStyles({ display: 'none' });
+		}
 	}
 	async updateImageSizeInMarkdown(n) {
 		let g = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -1027,7 +1049,7 @@ class ImgurPlugin extends Plugin {
 			t = i.getValue(),
 			k = n.src,
 			l = Math.round(n.offsetWidth);
-		console.log('开始更新图片大小:', {
+		log('开始更新图片大小:', {
 			imgSrc: k,
 			newWidth: l,
 		});
@@ -1036,12 +1058,12 @@ class ImgurPlugin extends Plugin {
 			new Notice('无法识别图片信息');
 			return;
 		}
-		console.log('提取的图片信息:', w);
+		log('提取的图片信息:', w);
 		let u = false,
 			f = /!\[([^\]]*?)\]\(([^)]+)\)/g,
 			h;
 		for (
-			console.log('开始匹配 Markdown 图片语法');
+			log('开始匹配 Markdown 图片语法');
 			(h = f.exec(t)) !== null;
 		) {
 			let d = h[0],
@@ -1049,13 +1071,13 @@ class ImgurPlugin extends Plugin {
 				A = h[2],
 				b = h.index;
 			if (
-				(console.log(`找到图片: ${d}`),
-				console.log(`Alt文本: "${x}", URL: "${A}"`),
+				(log(`找到图片: ${d}`),
+				log(`Alt文本: "${x}", URL: "${A}"`),
 				this.isMatchingImageByUrl(A, k, w))
 			) {
-				console.log('图片匹配成功，开始更新宽度');
+				log('图片匹配成功，开始更新宽度');
 				let _ = `![${`${x.replace(/\*\d+$/, '').trim()}*${l}`}](${A})`;
-				console.log(`替换: ${d} -> ${_}`);
+				log(`替换: ${d} -> ${_}`);
 				let j = i.offsetToPos(b),
 					m = i.offsetToPos(b + d.length);
 				(i.replaceRange(_, j, m),
@@ -1066,19 +1088,19 @@ class ImgurPlugin extends Plugin {
 			}
 		}
 		if (!u) {
-			console.log('未找到 Markdown 格式匹配，尝试 Wiki 链接格式');
+			log('未找到 Markdown 格式匹配，尝试 Wiki 链接格式');
 			let d = /!\[\[([^\]]+?)(?:\|[^\]]+)?\]\]/g;
 			for (; (h = d.exec(t)) !== null; ) {
 				let x = h[0],
 					b = h[1].split('|')[0],
 					M = h.index;
 				if (
-					(console.log(`找到 Wiki 图片: ${x}, 文件名: ${b}`),
+					(log(`找到 Wiki 图片: ${x}, 文件名: ${b}`),
 					this.isMatchingImageByFilename(b, w))
 				) {
-					console.log('Wiki 图片匹配成功，保持 Wiki 格式添加宽度');
+					log('Wiki 图片匹配成功，保持 Wiki 格式添加宽度');
 					let E = `![[${b}|${l}]]`;
-					console.log(`替换: ${x} -> ${E}`);
+					log(`替换: ${x} -> ${E}`);
 					let _ = i.offsetToPos(M),
 						j = i.offsetToPos(M + x.length);
 					(i.replaceRange(E, _, j),
@@ -1090,12 +1112,12 @@ class ImgurPlugin extends Plugin {
 			}
 		}
 		u ||
-			(console.log('未找到匹配的图片引用'),
+			(log('未找到匹配的图片引用'),
 			new Notice('未能更新图片大小到 Markdown 源码'));
 	}
 	extractImageInfo(n) {
 		var g;
-		console.log('提取图片信息，源URL:', n);
+		log('提取图片信息，源URL:', n);
 		try {
 			let i = new URL(n),
 				l = {
@@ -1103,59 +1125,59 @@ class ImgurPlugin extends Plugin {
 					domain: i.hostname,
 					path: n,
 				};
-			return (console.log('URL解析结果:', l), l);
+			return (log('URL解析结果:', l), l);
 		} catch (i: any) {
-			console.log('URL解析失败，尝试提取文件名');
+			log('URL解析失败，尝试提取文件名');
 			let t =
 					((g = n.split('/').pop()) == null
 						? void 0
 						: g.split('?')[0]) || '',
 				k = t ? { filename: t, domain: '', path: n } : null;
-			return (console.log('文件名提取结果:', k), k);
+			return (log('文件名提取结果:', k), k);
 		}
 	}
 	isMatchingImageByUrl(n, g, i) {
 		var t;
 		if (
-			(console.log('URL匹配检查:', {
+			(log('URL匹配检查:', {
 				markdownUrl: n,
 				imgSrc: g,
 			}),
 			n === g)
 		)
-			return (console.log('URL直接匹配'), true);
+			return (log('URL直接匹配'), true);
 		if (n.startsWith('http') && g.startsWith('http'))
 			try {
 				let k = new URL(n),
 					l = new URL(g);
 				if (k.hostname === l.hostname && k.pathname === l.pathname)
-					return (console.log('URL域名和路径匹配'), true);
+					return (log('URL域名和路径匹配'), true);
 				let w = this.extractFilenameFromUrl(k.pathname),
 					u = this.extractFilenameFromUrl(l.pathname);
 				if (this.compareFilenames(w, u))
-					return (console.log('URL文件名匹配'), true);
+					return (log('URL文件名匹配'), true);
 			} catch (k: any) {
-				console.log('URL解析失败:', k);
+				log('URL解析失败:', k);
 			}
 		if (i.filename) {
 			let k = decodeURIComponent(i.filename);
 			if (n.includes(i.filename))
-				return (console.log('URL包含文件名匹配'), true);
+				return (log('URL包含文件名匹配'), true);
 			if (n.includes(k))
-				return (console.log('URL包含解码后的文件名匹配'), true);
+				return (log('URL包含解码后的文件名匹配'), true);
 			let l =
 					((t = n.split('/').pop()) == null
 						? void 0
 						: t.split('?')[0]) || '',
 				w = decodeURIComponent(l);
 			if (this.compareFilenames(w, k))
-				return (console.log('提取的文件名匹配成功'), true);
+				return (log('提取的文件名匹配成功'), true);
 		}
-		return (console.log('URL匹配失败'), false);
+		return (log('URL匹配失败'), false);
 	}
 	isMatchingImageByFilename(n, g) {
 		if (
-			(console.log('文件名匹配检查:', {
+			(log('文件名匹配检查:', {
 				markdownFilename: n,
 				imgInfoFilename: g.filename,
 			}),
@@ -1163,7 +1185,7 @@ class ImgurPlugin extends Plugin {
 		)
 			return false;
 		let i = this.compareFilenames(n, g.filename);
-		return (console.log('文件名匹配结果:', i), i);
+		return (log('文件名匹配结果:', i), i);
 	}
 	extractFilenameFromUrl(n) {
 		try {
@@ -1176,33 +1198,33 @@ class ImgurPlugin extends Plugin {
 	compareFilenames(n, g) {
 		if (!n || !g) return false;
 		if (
-			(console.log('比较文件名:', {
+			(log('比较文件名:', {
 				filename1: n,
 				filename2: g,
 			}),
 			n === g)
 		)
-			return (console.log('直接匹配'), true);
+			return (log('直接匹配'), true);
 		let i = n.replace(/\.[^.]*$/, ''),
 			t = g.replace(/\.[^.]*$/, '');
-		if (i === t) return (console.log('无扩展名匹配'), true);
+		if (i === t) return (log('无扩展名匹配'), true);
 		let k = i.replace(/^\d+-/, ''),
 			l = t.replace(/^\d+-/, '');
-		if (k === l) return (console.log('清理时间戳后匹配'), true);
+		if (k === l) return (log('清理时间戳后匹配'), true);
 		try {
 			let w = encodeURIComponent(n),
 				u = encodeURIComponent(g);
-			if (w === u) return (console.log('编码后匹配'), true);
+			if (w === u) return (log('编码后匹配'), true);
 			let f = decodeURIComponent(n),
 				h = decodeURIComponent(g);
-			if (f === h) return (console.log('解码后匹配'), true);
+			if (f === h) return (log('解码后匹配'), true);
 			let d = f.replace(/^\d+-/, '').replace(/\.[^.]*$/, ''),
 				x = h.replace(/^\d+-/, '').replace(/\.[^.]*$/, '');
-			if (d === x) return (console.log('清理时间戳解码后匹配'), true);
+			if (d === x) return (log('清理时间戳解码后匹配'), true);
 		} catch (w: any) {
-			console.log('编码解码失败');
+			log('编码解码失败');
 		}
-		return (console.log('所有比较都失败'), false);
+		return (log('所有比较都失败'), false);
 	}
 }
 
@@ -1469,7 +1491,7 @@ class TencentCosSettingTab extends PluginSettingTab {
 							new Notice('请先配置COS设置');
 							return;
 						}
-						(console.log('开始手动测试COS连接...'),
+						(log('开始手动测试COS连接...'),
 							(await this.plugin.uploader.testConnection())
 								? new Notice('COS连接测试成功！')
 								: new Notice(
@@ -1478,13 +1500,15 @@ class TencentCosSettingTab extends PluginSettingTab {
 					});
 				}));
 	}
-	debounce(n, g) {
-		let i;
-		return function (...k) {
+	debounce(n: (...args: any[]) => void, g: number) {
+		let i: number | undefined;
+		return function (...k: any[]) {
 			let l = () => {
-				(clearTimeout(i), n(...k));
+				window.clearTimeout(i);
+				n(...k);
 			};
-			(clearTimeout(i), (i = setTimeout(l, g)));
+			window.clearTimeout(i);
+			i = window.setTimeout(l, g);
 		};
 	}
 }
@@ -1493,13 +1517,13 @@ class TencentCosUploader {
 	settings: any;
 	cos: any;
 	urlCache: Map<string, any>;
-	updateInterval: any = null;
+	updateInterval: number | null = null;
 	noteImageCounter: Map<string, any> = new Map();
 	constructor(K: any) {
 		this.updateInterval = null;
 		this.noteImageCounter = new Map();
 		if (
-			(console.log('COSUploader构造函数被调用，设置:', {
+			(log('COSUploader构造函数被调用，设置:', {
 				hasSecretId: !!K.secretId,
 				hasSecretKey: !!K.secretKey,
 				bucket: K.bucket,
@@ -1513,20 +1537,22 @@ class TencentCosUploader {
 		)
 			throw new Error('请先配置腾讯云 SecretId 和 SecretKey');
 		try {
-			(console.log('开始创建COS实例...'),
+			(log('开始创建COS实例...'),
 				(this.cos = new COS({
 					SecretId: K.secretId,
 					SecretKey: K.secretKey,
 					Protocol: 'https:',
 				})),
-				console.log('COS实例创建成功'));
+				log('COS实例创建成功'));
 		} catch (n: any) {
 			throw (console.error('COS实例创建失败:', n), n);
 		}
 	}
 	cleanup() {
-		this.updateInterval &&
-			(clearInterval(this.updateInterval), (this.updateInterval = null));
+		if (this.updateInterval !== null) {
+			window.clearInterval(this.updateInterval);
+			this.updateInterval = null;
+		}
 	}
 	validateConfig() {
 		let K = [];
@@ -1539,7 +1565,7 @@ class TencentCosUploader {
 					) || K.push('存储桶名称格式不正确')
 				: K.push('缺少存储桶名称'),
 			this.settings.region || K.push('缺少地域信息'),
-			console.log('COS配置验证结果:', {
+			log('COS配置验证结果:', {
 				valid: K.length === 0,
 				errors: K,
 				config: {
@@ -1560,7 +1586,7 @@ class TencentCosUploader {
 	async testConnection() {
 		try {
 			return (
-				console.log('开始测试COS连接...'),
+				log('开始测试COS连接...'),
 				new Promise((K) => {
 					this.cos.getBucket(
 						{
@@ -1577,7 +1603,7 @@ class TencentCosUploader {
 										statusCode: n.statusCode,
 									}),
 									K(false))
-								: (console.log('COS连接测试成功:', g), K(true));
+								: (log('COS连接测试成功:', g), K(true));
 						},
 					);
 				})
@@ -1589,8 +1615,8 @@ class TencentCosUploader {
 	async uploadFile(K, n, g) {
 		if (!this.settings.bucket || !this.settings.region)
 			throw new Error('请先配置存储桶和地域信息');
-		(console.log('开始上传文件:', K.name, '大小:', K.size, 'bytes'),
-			console.log('存储桶配置:', {
+		(log('开始上传文件:', K.name, '大小:', K.size, 'bytes'),
+			log('存储桶配置:', {
 				bucket: this.settings.bucket,
 				region: this.settings.region,
 				prefix: this.settings.prefix,
@@ -1608,7 +1634,7 @@ class TencentCosUploader {
 				(u = [this.settings.prefix.replace(/^\/+|\/+$/g, ''), f]
 					.filter(Boolean)
 					.join('/')),
-				console.log('使用自定义命名:', u));
+				log('使用自定义命名:', u));
 		} else {
 			let h = (t > 0 ? i.substring(0, t) : i).replace(/\s+/g, '-');
 			((w = `${Date.now()}-${h}`),
@@ -1616,7 +1642,7 @@ class TencentCosUploader {
 				(u = `${this.settings.prefix ? `${this.settings.prefix}/` : ''}${l}`));
 		}
 		return (
-			console.log('上传路径:', u),
+			log('上传路径:', u),
 			new Promise((f, h) => {
 				this.cos.putObject(
 					{
@@ -1636,7 +1662,7 @@ class TencentCosUploader {
 								h(d));
 							return;
 						}
-						console.log('上传成功，响应数据:', x);
+						log('上传成功，响应数据:', x);
 						try {
 							if (n)
 								try {
@@ -1644,9 +1670,9 @@ class TencentCosUploader {
 								} catch (b: any) {
 									console.warn('备份原始图片失败:', b);
 								}
-							console.log('开始获取签名URL...');
+							log('开始获取签名URL...');
 							let A = await this.getSignedUrl(u);
-							(console.log('获取到签名URL:', A),
+							(log('获取到签名URL:', A),
 								this.urlCache.set(u, A),
 								f({ url: A, displayName: w }));
 						} catch (A: any) {
@@ -1716,7 +1742,7 @@ class TencentCosUploader {
 		let i = g || this.settings.expiration,
 			t = n ? n + K : K;
 		if (
-			(console.log('获取URL参数:', {
+			(log('获取URL参数:', {
 				fileName: K,
 				prefix: n,
 				expires: i,
@@ -1730,7 +1756,7 @@ class TencentCosUploader {
 				l = this.settings.region,
 				w = `${k}.cos.${l}.myqcloud.com`,
 				f = `${this.customDomainOrigin() || `https://${w}`}/${t}`;
-			return (console.log('公有读URL生成成功:', f), Promise.resolve(f));
+			return (log('公有读URL生成成功:', f), Promise.resolve(f));
 		}
 		return new Promise((k, l) => {
 			this.cos.getObjectUrl(
@@ -1752,7 +1778,7 @@ class TencentCosUploader {
 							'response-content-disposition=inline',
 						h = this.customDomainOrigin();
 					(h && (f = f.replace(/^https?:\/\/[^/]+/i, h)),
-						console.log('签名URL生成成功:', f),
+						log('签名URL生成成功:', f),
 						k(f));
 				},
 			);
