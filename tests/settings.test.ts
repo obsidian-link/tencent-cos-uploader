@@ -283,3 +283,34 @@ describe('测试连接按钮', () => {
 		expect(Notice.messages).toEqual([message]);
 	});
 });
+
+describe('getSettingDefinitions & setControlValue', () => {
+	it('包含测试上传动作与所有核心配置项', () => {
+		const { tab } = render();
+		const defs = tab.getSettingDefinitions();
+		const names = defs.map((d) => ('name' in d ? (d as { name: string }).name : ''));
+
+		expect(names).toContain('Secret Id');
+		expect(names).toContain('Bucket');
+		expect(names).toContain('测试上传');
+
+		const action = defs.find((d) => 'name' in d && (d as { name: string }).name === '测试上传');
+		expect(action).toHaveProperty('action');
+	});
+
+	it('setControlValue 自动持久化并针对凭证字段重建上传器', async () => {
+		const { plugin, tab } = render();
+
+		await tab.setControlValue('secretId', 'new-id');
+		expect(plugin.settings.secretId).toBe('new-id');
+		expect(plugin.saveSettings).toHaveBeenCalledTimes(1);
+		expect(plugin.initUploader).toHaveBeenCalledTimes(1);
+
+		await tab.setControlValue('customDomain', 'https://cdn.com');
+		expect(plugin.settings.customDomain).toBe('https://cdn.com');
+		expect(plugin.saveSettings).toHaveBeenCalledTimes(2);
+		// 非凭证字段不触发重建上传器
+		expect(plugin.initUploader).toHaveBeenCalledTimes(1);
+	});
+});
+

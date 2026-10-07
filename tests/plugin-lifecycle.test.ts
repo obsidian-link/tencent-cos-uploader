@@ -112,7 +112,8 @@ describe('onload', () => {
 		FakeUploader.connectionOk = false;
 		finishConnection(false);
 		await flushPromises();
-		expect(Notice.messages).toEqual(['COS连接测试失败，请检查配置']);
+		// 启动阶段静默初始化，即使临时连不上也不弹通知打扰用户
+		expect(Notice.messages).toEqual([]);
 	});
 
 	it('注册编辑器、文件菜单与图片后处理等入口', async () => {

@@ -88,7 +88,7 @@ export default class TencentCosPlugin extends Plugin {
 		if (this.awaitingFirstSetup) {
 			new Notice('请先在设置中配置腾讯云 COS 信息！');
 		} else {
-			void this.initUploader();
+			void this.initUploader({ silent: true });
 		}
 	}
 
@@ -109,9 +109,10 @@ export default class TencentCosPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	/** （重新）创建上传器并测试连接；配置不完整时跳过 */
-	async initUploader(): Promise<void> {
+	/** （重新）创建上传器并测试连接；配置不完整时跳过。`options.silent = true` 时不弹失败通知（用于启动阶段） */
+	async initUploader(options?: { silent?: boolean }): Promise<void> {
 		if (!this.isConfigured()) return;
+		const silent = options?.silent ?? false;
 
 		try {
 			this.uploader = new TencentCosUploader(this.settings);
@@ -120,12 +121,14 @@ export default class TencentCosPlugin extends Plugin {
 					new Notice('腾讯云 COS 配置已完成！');
 					this.awaitingFirstSetup = false;
 				}
-			} else {
+			} else if (!silent) {
 				new Notice('COS连接测试失败，请检查配置');
 			}
 		} catch (error) {
 			console.error('COSUploader初始化失败:', error);
-			new Notice(`插件初始化失败：${getErrorMessage(error)}`);
+			if (!silent) {
+				new Notice(`插件初始化失败：${getErrorMessage(error)}`);
+			}
 		}
 	}
 

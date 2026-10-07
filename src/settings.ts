@@ -229,7 +229,24 @@ export class TencentCosSettingTab extends PluginSettingTab {
 					placeholder: 'pdf,mp3,mp4,wav,doc,docx,zip,mov,webm',
 				},
 			},
+			{
+				name: '测试上传',
+				desc: '测试COS连接和上传功能',
+				action: () => {
+					void this.testConnection();
+				},
+			},
 		];
+	}
+
+	override async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key in this.plugin.settings) {
+			(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+			await this.plugin.saveSettings();
+			if (['secretId', 'secretKey', 'bucket', 'region'].includes(key)) {
+				this.reinitUploader();
+			}
+		}
 	}
 
 	override display(): void {
@@ -411,22 +428,30 @@ export class TencentCosSettingTab extends PluginSettingTab {
 			});
 	}
 
+	private async testConnection(): Promise<void> {
+		let { uploader } = this.plugin;
+		if (!uploader) {
+			await this.plugin.initUploader({ silent: false });
+			uploader = this.plugin.uploader;
+		}
+		if (!uploader) {
+			new Notice('请先配置COS设置');
+			return;
+		}
+		new Notice(
+			(await uploader.testConnection())
+				? 'COS连接测试成功！'
+				: 'COS连接测试失败，请检查控制台日志',
+		);
+	}
+
 	private addTestConnectionSetting(): void {
 		new Setting(this.containerEl)
 			.setName('测试上传')
 			.setDesc('测试COS连接和上传功能')
 			.addButton((button) => {
-				button.setButtonText('测试连接').onClick(async () => {
-					const { uploader } = this.plugin;
-					if (!uploader) {
-						new Notice('请先配置COS设置');
-						return;
-					}
-					new Notice(
-						(await uploader.testConnection())
-							? 'COS连接测试成功！'
-							: 'COS连接测试失败，请检查控制台日志',
-					);
+				button.setButtonText('测试连接').onClick(() => {
+					void this.testConnection();
 				});
 			});
 	}
